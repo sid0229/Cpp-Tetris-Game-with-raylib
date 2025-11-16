@@ -1,0 +1,72 @@
+name: Build & Deploy Raylib WASM to GitHub Pages
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Install emsdk (clone & install latest)
+        run: |
+          git clone https://github.com/emscripten-core/emsdk.git emsdk
+          cd emsdk
+          ./emsdk install latest
+          ./emsdk activate latest
+        shell: bash
+
+      - name: Load emsdk environment
+        run: |
+          source ./emsdk/emsdk_env.sh
+          emcc -v
+        shell: bash
+
+      - name: Build raylib for Web (PLATFORM_WEB)
+        run: |
+          git clone https://github.com/raysan5/raylib.git raylib
+          cd raylib/src
+          emmake make PLATFORM=PLATFORM_WEB
+          cd ../..
+          # keep library where linker can find it
+          mkdir -p raylib_build
+          cp raylib/src/libraylib.a raylib_build/
+        shell: bash
+
+      - name: Build game with emcc (compile all src/*.cpp)
+        run: |
+          source ./emsdk/emsdk_env.sh
+          mkdir -p out
+
+          # Adjust these if your main file or extra source files differ.
+          # This compiles every .cpp in src/ - change to explicit file list if needed.
+          emcc src/*.cpp \
+            -O3 -std=c++17 \
+            -Iraylib/src \
+            -Lraylib_build -lraylib \
+            -s USE_GLFW=3 \
+            -s ASYNCIFY \
+            -s ALLOW_MEMORY_GROWTH=1 \
+            --preload-file Font@/Font \
+            --preload-file Sounds@/Sounds \
+            -DPLATFORM_WEB \
+            -o out/index.html
+
+          # If your game references assets by relative paths (e.g. "Font/monogram.ttf"),
+          # they will be available at '/Font/...' inside the web app.
+        shell: bash
+
+      - name: Sanity list output
+        run: |
+          echo "out/ contents:"
+          ls -la out
+        shell: bash
+
+      - name: Deploy to gh-pages
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          publish_dir: ./out
+          github_token: ${{ secrets.GITHUB_TOKEN }}
