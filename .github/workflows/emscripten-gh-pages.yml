@@ -1,4 +1,4 @@
-name: Build & Deploy Raylib WASM to GitHub Pages (Option A - single-step emsdk sourcing)
+name: Build & Deploy Raylib WASM to GitHub Pages (Option A - fixed copy)
 
 on:
   push:
@@ -32,13 +32,26 @@ jobs:
 
           # 2) Clone raylib and build for Web (PLATFORM_WEB)
           cd $GITHUB_WORKSPACE
+          rm -rf raylib || true
           git clone https://github.com/raysan5/raylib.git raylib
           cd raylib/src
           # Build raylib with emscripten - this uses emmake in the same shell where emsdk is sourced
           emmake make PLATFORM=PLATFORM_WEB
-          cd ../..
+
+          # raylib built; find produced .a file (may be libraylib.web.a or libraylib.a)
+          cd $GITHUB_WORKSPACE
           mkdir -p raylib_build
-          cp raylib/src/libraylib.a raylib_build/
+          RLIB=$(find raylib/src -maxdepth 1 -type f -name "libraylib*.a" | head -n 1 || true)
+          if [ -z "$RLIB" ]; then
+            echo "ERROR: no libraylib*.a found in raylib/src"
+            echo "Contents of raylib/src:"
+            ls -la raylib/src
+            exit 1
+          else
+            echo "Found raylib archive: $RLIB"
+            cp "$RLIB" raylib_build/libraylib.a
+            ls -la raylib_build
+          fi
 
           # 3) Build your game with emcc
           # - Compiles all .cpp files inside src/ (change explicit list here if you prefer)
@@ -58,7 +71,7 @@ jobs:
 
           # show output for debugging
           echo "=== out directory contents ==="
-          ls -la out
+          ls -la out || true
           echo "=== size of generated files ==="
           du -h out || true
         shell: bash
