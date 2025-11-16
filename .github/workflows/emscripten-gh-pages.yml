@@ -1,4 +1,4 @@
-name: Build & Deploy Raylib WASM to GitHub Pages (Option A - fixed copy)
+name: Build & Deploy Raylib WASM to GitHub Pages
 
 on:
   push:
@@ -12,52 +12,43 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install emsdk, build raylib and compile game (all in one shell)
+      - name: Install Emscripten + Build Raylib + Build Game (single shell)
         run: |
           set -euo pipefail
 
-          # 1) Install emsdk
+          ### 1) Install EMSDK
           git clone https://github.com/emscripten-core/emsdk.git emsdk
           cd emsdk
           ./emsdk install latest
           ./emsdk activate latest
-
-          # Make emscripten tools available in this shell
           source ./emsdk_env.sh
 
-          # sanity check
+          echo "EMCC Version:"
           emcc -v
-          which emcc
-          which emmake
 
-          # 2) Clone raylib and build for Web (PLATFORM_WEB)
+          ### 2) Build Raylib for Web
           cd $GITHUB_WORKSPACE
-          rm -rf raylib || true
           git clone https://github.com/raysan5/raylib.git raylib
           cd raylib/src
-          # Build raylib with emscripten - this uses emmake in the same shell where emsdk is sourced
           emmake make PLATFORM=PLATFORM_WEB
 
-          # raylib built; find produced .a file (may be libraylib.web.a or libraylib.a)
+          ### 3) Copy generated libraylib*.a
           cd $GITHUB_WORKSPACE
           mkdir -p raylib_build
-          RLIB=$(find raylib/src -maxdepth 1 -type f -name "libraylib*.a" | head -n 1 || true)
-          if [ -z "$RLIB" ]; then
-            echo "ERROR: no libraylib*.a found in raylib/src"
-            echo "Contents of raylib/src:"
-            ls -la raylib/src
-            exit 1
-          else
-            echo "Found raylib archive: $RLIB"
-            cp "$RLIB" raylib_build/libraylib.a
-            ls -la raylib_build
-          fi
+          RLIB=$(find raylib/src -maxdepth 1 -type f -name "libraylib*.a" | head -n 1)
+          cp "$RLIB" raylib_build/libraylib.a
 
-          # 3) Build your game with emcc
-          # - Compiles all .cpp files inside src/ (change explicit list here if you prefer)
-          # - Preloads Font/ and Sounds/ directories into the Emscripten virtual FS at /Font and /Sounds
+          ### 4) Build game using explicit source list (safer than wildcard)
           mkdir -p out
-          emcc src/*.cpp \
+
+          emcc \
+            src/main.cpp \
+            src/game.cpp \
+            src/grid.cpp \
+            src/block.cpp \
+            src/blocks.cpp \
+            src/colors.cpp \
+            src/position.cpp \
             -O3 -std=c++17 \
             -Iraylib/src \
             -Lraylib_build -lraylib \
@@ -69,14 +60,13 @@ jobs:
             -DPLATFORM_WEB \
             -o out/index.html
 
-          # show output for debugging
-          echo "=== out directory contents ==="
-          ls -la out || true
-          echo "=== size of generated files ==="
-          du -h out || true
-        shell: bash
+          ### 5) Create .nojekyll WITH CONTENT
+          echo "# Prevent GitHub Jekyll from ignoring wasm/data files" > out/.nojekyll
 
-      - name: Deploy out/ to GitHub Pages (gh-pages)
+          echo "Build Completed. out/ contains:"
+          ls -la out
+
+      - name: Deploy to GitHub Pages (gh-pages branch)
         uses: peaceiris/actions-gh-pages@v3
         with:
           publish_dir: ./out
