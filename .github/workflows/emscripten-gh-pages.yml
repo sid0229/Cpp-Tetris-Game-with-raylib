@@ -1,4 +1,4 @@
-name: Build & Deploy Raylib WASM to GitHub Pages
+name: Build & Deploy Raylib WASM to GitHub Pages (Option A - single-step emsdk sourcing)
 
 on:
   push:
@@ -7,42 +7,43 @@ on:
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Checkout repo
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install emsdk (clone & install latest)
+      - name: Install emsdk, build raylib and compile game (all in one shell)
         run: |
+          set -euo pipefail
+
+          # 1) Install emsdk
           git clone https://github.com/emscripten-core/emsdk.git emsdk
           cd emsdk
           ./emsdk install latest
           ./emsdk activate latest
-        shell: bash
 
-      - name: Load emsdk environment
-        run: |
-          source ./emsdk/emsdk_env.sh
+          # Make emscripten tools available in this shell
+          source ./emsdk_env.sh
+
+          # sanity check
           emcc -v
-        shell: bash
+          which emcc
+          which emmake
 
-      - name: Build raylib for Web (PLATFORM_WEB)
-        run: |
+          # 2) Clone raylib and build for Web (PLATFORM_WEB)
+          cd $GITHUB_WORKSPACE
           git clone https://github.com/raysan5/raylib.git raylib
           cd raylib/src
+          # Build raylib with emscripten - this uses emmake in the same shell where emsdk is sourced
           emmake make PLATFORM=PLATFORM_WEB
           cd ../..
-          # keep library where linker can find it
           mkdir -p raylib_build
           cp raylib/src/libraylib.a raylib_build/
-        shell: bash
 
-      - name: Build game with emcc (compile all src/*.cpp)
-        run: |
-          source ./emsdk/emsdk_env.sh
+          # 3) Build your game with emcc
+          # - Compiles all .cpp files inside src/ (change explicit list here if you prefer)
+          # - Preloads Font/ and Sounds/ directories into the Emscripten virtual FS at /Font and /Sounds
           mkdir -p out
-
-          # Adjust these if your main file or extra source files differ.
-          # This compiles every .cpp in src/ - change to explicit file list if needed.
           emcc src/*.cpp \
             -O3 -std=c++17 \
             -Iraylib/src \
@@ -55,17 +56,14 @@ jobs:
             -DPLATFORM_WEB \
             -o out/index.html
 
-          # If your game references assets by relative paths (e.g. "Font/monogram.ttf"),
-          # they will be available at '/Font/...' inside the web app.
-        shell: bash
-
-      - name: Sanity list output
-        run: |
-          echo "out/ contents:"
+          # show output for debugging
+          echo "=== out directory contents ==="
           ls -la out
+          echo "=== size of generated files ==="
+          du -h out || true
         shell: bash
 
-      - name: Deploy to gh-pages
+      - name: Deploy out/ to GitHub Pages (gh-pages)
         uses: peaceiris/actions-gh-pages@v3
         with:
           publish_dir: ./out
